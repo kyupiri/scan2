@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>바코드 스캐너</title>
+<script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --card: #1c1c26;
+    --border: #2a2a38;
+    --accent: #00e5a0;
+    --accent2: #0099ff;
+    --danger: #ff4466;
+    --text: #f0f0f8;
+    --muted: #7070a0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+  }
+
+  header {
+    padding: 20px 20px 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 26px;
+    letter-spacing: 2px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .logo-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%,100% { opacity:1; transform:scale(1); }
+    50% { opacity:0.5; transform:scale(0.8); }
+  }
+
+  main {
+    flex: 1;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-width: 480px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  .scanner-label {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .scanner-box {
+    position: relative;
+    background: #000;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+
+  #video {
+    width: 100%;
+    display: block;
+    border-radius: 16px;
+    min-height: 200px;
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .aim-box {
+    width: 72%;
+    height: 30%;
+    position: relative;
+    display: none;
+  }
+
+  .scanner-box.active .aim-box { display: block; }
+
+  .aim-box::before, .aim-box::after,
+  .aim-inner::before, .aim-inner::after {
+    content: '';
+    position: absolute;
+    width: 22px; height: 22px;
+  }
+  .aim-box::before  { top:0; left:0;   border-top:2.5px solid var(--accent); border-left:2.5px solid var(--accent); border-radius:3px 0 0 0; }
+  .aim-box::after   { top:0; right:0;  border-top:2.5px solid var(--accent); border-right:2.5px solid var(--accent); border-radius:0 3px 0 0; }
+  .aim-inner::before{ bottom:0; left:0; border-bottom:2.5px solid var(--accent); border-left:2.5px solid var(--accent); border-radius:0 0 0 3px; }
+  .aim-inner::after { bottom:0; right:0; border-bottom:2.5px solid var(--accent); border-right:2.5px solid var(--accent); border-radius:0 0 3px 0; }
+
+  .scan-line {
+    position: absolute;
+    left: 14%; right: 14%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(0,229,160,0.9), transparent);
+    animation: scanLine 1.8s ease-in-out infinite;
+    display: none;
+  }
+
+  .scanner-box.active .scan-line { display: block; }
+
+  @keyframes scanLine {
+    0%   { top: 20%; opacity:0; }
+    10%  { opacity:1; }
+    90%  { opacity:1; }
+    100% { top: 80%; opacity:0; }
+  }
+
+  .camera-select-wrap {
+    position: absolute;
+    bottom: 10px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    display: none;
+  }
+
+  .scanner-box.active .camera-select-wrap { display: block; }
+
+  #cameraSelect {
+    background: rgba(0,0,0,0.75);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: #ccc;
+    font-size: 11px;
+    padding: 4px 8px;
+    outline: none;
+    max-width: 200px;
+  }
+
+  .scanner-placeholder {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: var(--surface);
+    min-height: 200px;
+  }
+
+  .scanner-placeholder.hidden { display: none; }
+
+  .placeholder-text {
+    font-size: 13px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  @keyframes flashGreen {
+    0%   { border-color: var(--border); box-shadow: none; }
+    40%  { border-color: var(--accent); box-shadow: 0 0 28px rgba(0,229,160,0.45); }
+    100% { border-color: var(--border); box-shadow: none; }
+  }
+
+  .scanner-box.flash { animation: flashGreen 0.5s ease forwards; }
+
+  .btn-scan {
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    border: none;
+    border-radius: 12px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: #000;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: opacity 0.2s, transform 0.1s;
+  }
+
+  .btn-scan:active { transform: scale(0.98); opacity: 0.9; }
+
+  .btn-scan.scanning {
+    background: var(--card);
+    color: var(--danger);
+    border: 1px solid var(--danger);
+  }
+
+  .manual-section { display: flex; gap: 8px; }
+
+  .input-barcode {
+    flex: 1;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .input-barcode::placeholder { color: var(--muted); }
+  .input-barcode:focus { border-color: var(--accent); }
+
+  .btn-search {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    color: var(--accent);
+    font-size: 18px;
+    cursor: pointer;
+  }
+
+  .loading {
+    padding: 20px;
+    font-size: 13px;
+    color: var(--muted);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .loading.visible { display: flex; }
+
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-card {
+    background: rgba(255,68,102,0.08);
+    border: 1px solid rgba(255,68,102,0.3);
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 13px;
+    color: var(--danger);
+    display: none;
+    align-items: center;
+    gap: 8px;
+  }
+  .error-card.visible { display: flex; }
+
+  .result-section { display: none; }
+  .result-section.visible { display: block; }
+
+  .result-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+  }
+
+  .result-header {
+    padding: 14px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .result-badge { font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .result-barcode-val { margin-left: auto; font-size: 12px; color: var(--muted); font-family: monospace; letter-spacing: 1px; }
+
+  .result-body { padding: 16px; display: flex; gap: 16px; align-items: flex-start; }
+
+  .product-img-box {
+    width: 80px; height: 80px;
+    border-radius: 10px;
+    background: var(--surface);
+    overflow: hidden;
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .product-img-box img { width:100%; height:100%; object-fit:contain; }
+  .product-img-box .no-img { font-size: 28px; opacity: 0.3; }
+
+  .product-info { flex: 1; min-width: 0; }
+  .product-name { font-size: 15px; font-weight: 600; line-height: 1.4; margin-bottom: 4px; }
+  .product-brand { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .product-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { font-size: 11px; padding: 3px 8px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+  .tag.highlight { border-color: var(--accent); color: var(--accent); background: rgba(0,229,160,0.08); }
+
+  .nutrients { padding: 0 16px 16px; display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+  .nutrient-box { background: var(--surface); border-radius: 10px; padding: 10px 8px; text-align: center; }
+  .nutrient-val { font-size: 16px; font-weight: 700; font-family: 'Bebas Neue', sans-serif; letter-spacing: 0.5px; }
+  .nutrient-label { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  .history-section { margin-top: 4px; }
+  .section-title { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+  .history-list { display: flex; flex-direction: column; gap: 6px; }
+  .history-item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .history-item:active { border-color: var(--accent); }
+  .history-code { font-size: 12px; font-family: monospace; color: var(--accent2); letter-spacing: 1px; }
+  .history-name { font-size: 13px; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history-time { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-dot"></div>
+  <div class="logo">SCANR</div>
+</header>
+
+<main>
+  <div>
+    <div class="scanner-label">카메라 스캐너</div>
+    <div class="scanner-box" id="scannerBox">
+      <video id="video" playsinline></video>
+      <div class="overlay">
+        <div class="aim-box"><div class="aim-inner"></div></div>
+      </div>
+      <div class="scan-line"></div>
+      <div class="camera-select-wrap">
+        <select id="cameraSelect"></select>
+      </div>
+      <div class="scanner-placeholder" id="placeholder">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" opacity="0.3">
+          <rect x="3" y="3" width="14" height="14" rx="2" stroke="white" stroke-width="2"/>
+          <rect x="31" y="3" width="14" height="14" rx="2" stroke="white" stroke-width="2"/>
+          <rect x="3" y="31" width="14" height="14" rx="2" stroke="white" stroke-width="2"/>
+          <line x1="24" y1="6" x2="24" y2="42" stroke="white" stroke-width="2"/>
+          <line x1="29" y1="12" x2="29" y2="36" stroke="white" stroke-width="2"/>
+          <line x1="34" y1="20" x2="34" y2="44" stroke="white" stroke-width="2"/>
+          <line x1="39" y1="16" x2="39" y2="40" stroke="white" stroke-width="2"/>
+          <line x1="44" y1="22" x2="44" y2="38" stroke="white" stroke-width="2"/>
+        </svg>
+        <div class="placeholder-text">버튼을 눌러<br>카메라를 시작하세요</div>
+      </div>
+    </div>
+  </div>
+
+  <button class="btn-scan" id="btnScan" onclick="toggleScan()">
+    <span id="btnIcon">📷</span>
+    <span id="btnText">스캔 시작</span>
+  </button>
+
+  <div class="manual-section">
+    <input type="text" class="input-barcode" id="manualInput" placeholder="바코드 번호 직접 입력..." inputmode="numeric">
+    <button class="btn-search" onclick="searchManual()">🔍</button>
+  </div>
+
+  <div class="loading" id="loading"><div class="spinner"></div>상품 정보를 불러오는 중...</div>
+  <div class="error-card" id="errorCard"><span>⚠️</span><span id="errorMsg"></span></div>
+
+  <div class="result-section" id="resultSection">
+    <div class="result-card">
+      <div class="result-header">
+        <span class="result-badge">✓ 조회 완료</span>
+        <span class="result-barcode-val" id="resultBarcode"></span>
+      </div>
+      <div class="result-body">
+        <div class="product-img-box" id="imgBox"><span class="no-img">📦</span></div>
+        <div class="product-info">
+          <div class="product-name" id="productName"></div>
+          <div class="product-brand" id="productBrand"></div>
+          <div class="product-tags" id="productTags"></div>
+        </div>
+      </div>
+      <div class="nutrients" id="nutrients"></div>
+    </div>
+  </div>
+
+  <div class="history-section" id="historySection" style="display:none">
+    <div class="section-title">최근 조회</div>
+    <div class="history-list" id="historyList"></div>
+  </div>
+</main>
+
+<script>
+const codeReader = new ZXing.BrowserMultiFormatReader();
+let scanning = false;
+let lastCode = '';
+let history = JSON.parse(localStorage.getItem('scanHistory') || '[]');
+
+async function loadCameras() {
+  try {
+    const devices = await ZXing.BrowserMultiFormatReader.listVideoInputDevices();
+    const sel = document.getElementById('cameraSelect');
+    sel.innerHTML = '';
+    devices.forEach((d, i) => {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.text = d.label || `카메라 ${i+1}`;
+      sel.appendChild(opt);
+    });
+    // 후면 카메라 자동 선택
+    const backIdx = devices.findIndex(d => /back|rear|environment/i.test(d.label));
+    if (backIdx >= 0) sel.selectedIndex = backIdx;
+    sel.onchange = () => { if (scanning) { stopScan(); startScan(); } };
+  } catch(e) {}
+}
+
+loadCameras();
+
+async function startScan() {
+  document.getElementById('placeholder').classList.add('hidden');
+  document.getElementById('scannerBox').classList.add('active');
+  document.getElementById('btnScan').classList.add('scanning');
+  document.getElementById('btnIcon').textContent = '⏹';
+  document.getElementById('btnText').textContent = '스캔 중지';
+  scanning = true;
+  lastCode = '';
+
+  const selectedDevice = document.getElementById('cameraSelect').value || undefined;
+
+  try {
+    await codeReader.decodeFromVideoDevice(selectedDevice, 'video', (result, err) => {
+      if (result) {
+        const code = result.getText();
+        if (code === lastCode) return;
+        lastCode = code;
+
+        const box = document.getElementById('scannerBox');
+        box.classList.add('flash');
+        setTimeout(() => box.classList.remove('flash'), 500);
+
+        stopScan();
+        fetchProduct(code);
+      }
+    });
+  } catch(e) {
+    showError('카메라 접근 권한이 필요합니다. 브라우저 설정에서 카메라를 허용해주세요.');
+    stopScan();
+  }
+}
+
+function stopScan() {
+  codeReader.reset();
+  scanning = false;
+  document.getElementById('scannerBox').classList.remove('active');
+  document.getElementById('btnScan').classList.remove('scanning');
+  document.getElementById('btnIcon').textContent = '📷';
+  document.getElementById('btnText').textContent = '스캔 시작';
+  document.getElementById('placeholder').classList.remove('hidden');
+}
+
+function toggleScan() {
+  if (!scanning) startScan();
+  else stopScan();
+}
+
+function searchManual() {
+  const val = document.getElementById('manualInput').value.trim();
+  if (!val) return;
+  fetchProduct(val);
+}
+
+document.getElementById('manualInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') searchManual();
+});
+
+async function fetchProduct(barcode) {
+  showLoading(true);
+  hideResult();
+  hideError();
+  document.getElementById('resultBarcode').textContent = barcode;
+
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`);
+    const data = await res.json();
+
+    if (data.status === 1 && data.product) {
+      showProduct(barcode, data.product);
+      const name = data.product.product_name_ko || data.product.product_name || '알 수 없는 상품';
+      addHistory(barcode, name);
+    } else {
+      showError(`바코드 ${barcode}에 해당하는 상품을 찾을 수 없습니다.`);
+    }
+  } catch(e) {
+    showError('네트워크 오류가 발생했습니다. 인터넷 연결을 확인하세요.');
+  }
+
+  showLoading(false);
+}
+
+function showProduct(barcode, p) {
+  const name = p.product_name_ko || p.product_name || '이름 없음';
+  document.getElementById('productName').textContent = name;
+  document.getElementById('productBrand').textContent = p.brands || '';
+
+  const imgUrl = p.image_front_small_url || p.image_url || '';
+  const imgBox = document.getElementById('imgBox');
+  imgBox.innerHTML = imgUrl
+    ? `<img src="${imgUrl}" alt="${name}" onerror="this.parentElement.innerHTML='<span class=no-img>📦</span>'">`
+    : '<span class="no-img">📦</span>';
+
+  const tagsEl = document.getElementById('productTags');
+  tagsEl.innerHTML = '';
+  (p.categories_tags_ko || p.categories_tags || []).slice(0,3).forEach(t => {
+    const span = document.createElement('span');
+    span.className = 'tag';
+    span.textContent = t.replace(/^(ko:|en:)/, '');
+    tagsEl.appendChild(span);
+  });
+  if (p.nutriscore_grade) {
+    const ns = document.createElement('span');
+    ns.className = 'tag highlight';
+    ns.textContent = 'Nutri-Score ' + p.nutriscore_grade.toUpperCase();
+    tagsEl.appendChild(ns);
+  }
+
+  const nutrEl = document.getElementById('nutrients');
+  nutrEl.innerHTML = '';
+  [
+    { key: 'energy-kcal_100g', label: 'kcal', unit: '' },
+    { key: 'carbohydrates_100g', label: '탄수화물', unit: 'g' },
+    { key: 'proteins_100g', label: '단백질', unit: 'g' },
+    { key: 'fat_100g', label: '지방', unit: 'g' },
+  ].forEach(f => {
+    const val = p.nutriments?.[f.key];
+    if (val !== undefined) {
+      const box = document.createElement('div');
+      box.className = 'nutrient-box';
+      box.innerHTML = `<div class="nutrient-val">${Math.round(val)}<span style="font-size:11px;font-family:'DM Sans'">${f.unit}</span></div><div class="nutrient-label">${f.label}</div>`;
+      nutrEl.appendChild(box);
+    }
+  });
+
+  document.getElementById('resultSection').classList.add('visible');
+}
+
+function addHistory(barcode, name) {
+  history = history.filter(h => h.barcode !== barcode);
+  history.unshift({ barcode, name, time: new Date().toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'}) });
+  history = history.slice(0, 5);
+  localStorage.setItem('scanHistory', JSON.stringify(history));
+  renderHistory();
+}
+
+function renderHistory() {
+  if (!history.length) return;
+  document.getElementById('historySection').style.display = 'block';
+  const list = document.getElementById('historyList');
+  list.innerHTML = '';
+  history.forEach(h => {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    item.innerHTML = `<span class="history-code">${h.barcode}</span><span class="history-name">${h.name}</span><span class="history-time">${h.time}</span>`;
+    item.onclick = () => fetchProduct(h.barcode);
+    list.appendChild(item);
+  });
+}
+
+function showLoading(v) { document.getElementById('loading').classList.toggle('visible', v); }
+function hideResult() { document.getElementById('resultSection').classList.remove('visible'); }
+function hideError() { document.getElementById('errorCard').classList.remove('visible'); }
+function showError(msg) { document.getElementById('errorMsg').textContent = msg; document.getElementById('errorCard').classList.add('visible'); }
+
+renderHistory();
+</script>
+</body>
+</html>
